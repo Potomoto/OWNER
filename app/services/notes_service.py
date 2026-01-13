@@ -1,61 +1,53 @@
-from datetime import datetime
 from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.models import Note
 from app.schemas.notes import NoteCreate, NoteOut
 
 
 class NotesService:
     """
-    业务层：所有“笔记相关的事情”都放这里。
-    目前用内存 dict 存储；未来换数据库时，主要改这里。
+    业务层：现在由 SQLite 持久化。
+    每个方法接收一个 db(Session)，代表一次数据库会话。
     """
 
-    def __init__(self):
-        self._notes: dict[int, NoteOut] = {}
-        self._next_id: int = 1
+    def create(self, db: Session, payload: NoteCreate) -> NoteOut:
+        note = Note(title=payload.title, content=payload.content)
+        # 将对象加入本次会话
+        db.add(note)
+        # 将对象真正的写入到数据库中
+        db.commit()
+        db.refresh(note)  # 拿到自增 id 等数据库生成的字段
+        return NoteOut(id=note.id, title=note.title, content=note.content, created_at=note.created_at)
 
-    def create(self, payload: NoteCreate) -> NoteOut:
-        note = NoteOut(
-            id=self._next_id,
-            title=payload.title,
-            content=payload.content,
-            created_at=datetime.utcnow(),
-        )
-        self._notes[self._next_id] = note
-        self._next_id += 1
-        return note
+    def list(self, db: Session) -> list[NoteOut]:
+        notes = db.query(Note).order_by(Note.id.asc()).all()
+        return [
+            NoteOut(id=n.id, title=n.title, content=n.content, created_at=n.created_at)
+            for n in notes
+        ]
 
-    def list(self) -> list[NoteOut]:
-        return list(self._notes.values())
-
-    def get(self, note_id: int) -> NoteOut:
-        note = self._notes.get(note_id)
+    def get(self, db: Session, note_id: int) -> NoteOut:
+        note = db.query(Note).filter(Note.id == note_id).first()
         if note is None:
-            # 404：资源不存在（非常常见）
             raise HTTPException(status_code=404, detail="Note not found")
-        return note
+        return NoteOut(id=note.id, title=note.title, content=note.content, created_at=note.created_at)
 
-    def update(self, note_id: int, payload: NoteCreate) -> NoteOut:
-        # 先确保存在，不存在就抛 404
-        existing = self.get(note_id)
-
-        updated = NoteOut(
-            id=existing.id,
-            title=payload.title,
-            content=payload.content,
-            created_at=existing.created_at,  # 保留原创建时间
-        )
-        self._notes[note_id] = updated
-        return updated
-
-    def delete(self, note_id: int) -> None:
-        if note_id not in self._notes:
+    def update(self, db: Session, note_id: int, payload: NoteCreate) -> NoteOut:
+        note = db.query(Note).filter(Note.id == note_id).first()
+        if note is None:
             raise HTTPException(status_code=404, detail="Note not found")
-        del self._notes[note_id]
 
-    def clear(self) -> None:
-        """
-        测试时会用到：清空内存数据。
-        现在先放着，等第4天写测试就会用上。
-        """
-        self._notes.clear()
-        self._next_id = 1
+        note.title = payload.title
+        note.content = payload.content
+        db.commit()
+        db.refresh(note)
+        return NoteOut(id=note.id, title=note.title, content=note.content, created_at=note.created_at)
+
+    def delete(self, db: Session, note_id: int) -> None:
+        note = db.query(Note).filter(Note.id == note_id).first()
+        if note is None:
+            raise HTTPException(status_code=404, detail="Note not found")
+
+        db.delete(note)
+        db.commit()
