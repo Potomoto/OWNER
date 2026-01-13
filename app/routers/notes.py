@@ -1,47 +1,34 @@
-from fastapi import APIRouter, HTTPException
-from datetime import datetime
+from fastapi import APIRouter
 from app.schemas.notes import NoteCreate, NoteOut
+from app.services.notes_service import NotesService
 
-# router将所有接口都集中管理，避免混乱
-# APIRouter是一个接口集合
 router = APIRouter()
+service = NotesService()
 
-# 内存数据库：用 dict 存 notes
-NOTES: dict[int, NoteOut] = {}
-NEXT_ID = 1
 
-# 注册一个POST接口
 @router.post("/notes", response_model=NoteOut)
-# 创建笔记，其中payload: NoteCreate是告诉FastAPI将请求的JSON解析成NoteCreate，并校验
 def create_note(payload: NoteCreate):
-    global NEXT_ID
-    note = NoteOut(
-        id=NEXT_ID,
-        title=payload.title,
-        content=payload.content,
-        created_at=datetime.utcnow(),
-    )
-    NOTES[NEXT_ID] = note
-    NEXT_ID += 1
-    return note
+    return service.create(payload)
 
 
 @router.get("/notes", response_model=list[NoteOut])
 def list_notes():
-    return list(NOTES.values())
+    return service.list()
 
 
 @router.get("/notes/{note_id}", response_model=NoteOut)
 def get_note(note_id: int):
-    note = NOTES.get(note_id)
-    if note is None:
-        raise HTTPException(status_code=404, detail="Note not found")
-    return note
+    return service.get(note_id)
+
+# 用一份新的完整数据，替换某个资源
+# Put为整体替换，需要提供完整的字段，为了满足“幂等”的需求，一般更新常用put
+# 幂等：同样的请求重复执行多次，结果应该一样
+@router.put("/notes/{note_id}", response_model=NoteOut)
+def update_note(note_id: int, payload: NoteCreate):
+    return service.update(note_id, payload)
 
 
 @router.delete("/notes/{note_id}")
 def delete_note(note_id: int):
-    if note_id not in NOTES:
-        raise HTTPException(status_code=404, detail="Note not found")
-    del NOTES[note_id]
+    service.delete(note_id)
     return {"deleted": True}
