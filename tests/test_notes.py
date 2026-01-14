@@ -7,6 +7,10 @@ from app.main import app
 from app.db import Base, get_db
 from app.models import Note
 
+import os
+os.environ["API_KEY"] = "test-key"
+HEADERS = {"X-API-Key": "test-key"}
+
 # 1) 测试用独立数据库（不会影响 notes.db）
 TEST_DATABASE_URL = "sqlite:///./test_notes.db"
 
@@ -52,7 +56,7 @@ def setup_function():
 
 
 def test_create_note():
-    resp = client.post("/v1/notes", json={"title": "t1", "content": "c1"})
+    resp = client.post("/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS)
     assert resp.status_code == 200
 
     data = resp.json()
@@ -65,10 +69,10 @@ def test_create_note():
 
 
 def test_list_notes():
-    client.post("/v1/notes", json={"title": "t1", "content": "c1"})
-    client.post("/v1/notes", json={"title": "t2", "content": "c2"})
+    client.post("/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS)
+    client.post("/v1/notes", json={"title": "t2", "content": "c2"}, headers=HEADERS)
 
-    resp = client.get("/v1/notes")
+    resp = client.get("/v1/notes", headers=HEADERS)
     assert resp.status_code == 200
 
     data = resp.json()
@@ -76,16 +80,16 @@ def test_list_notes():
 
 
 def test_get_note_not_found():
-    resp = client.get("/v1/notes/999")
+    resp = client.get("/v1/notes/999", headers=HEADERS)
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Note not found"
 
 
 def test_update_note():
-    created = client.post("/v1/notes", json={"title": "t1", "content": "c1"}).json()
+    created = client.post("/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS).json()
     note_id = created["id"]
 
-    resp = client.put(f"/v1/notes/{note_id}", json={"title": "t1b", "content": "c1b"})
+    resp = client.put(f"/v1/notes/{note_id}", json={"title": "t1b", "content": "c1b"}, headers=HEADERS)
     assert resp.status_code == 200
 
     data = resp.json()
@@ -95,15 +99,15 @@ def test_update_note():
 
 
 def test_delete_note():
-    created = client.post("/v1/notes", json={"title": "t1", "content": "c1"}).json()
+    created = client.post("/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS).json()
     note_id = created["id"]
 
-    resp = client.delete(f"/v1/notes/{note_id}")
+    resp = client.delete(f"/v1/notes/{note_id}", headers=HEADERS)
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
 
     # 删除后再获取应 404
-    resp2 = client.get(f"/v1/notes/{note_id}")
+    resp2 = client.get(f"/v1/notes/{note_id}", headers=HEADERS)
     assert resp2.status_code == 404
 
 
@@ -113,16 +117,16 @@ def _iso_to_dt(s: str) -> datetime:
 
 
 def test_list_notes_pagination_limit_offset():
-    client.post("/v1/notes", json={"title": "a", "content": "1"})
-    client.post("/v1/notes", json={"title": "b", "content": "2"})
-    client.post("/v1/notes", json={"title": "c", "content": "3"})
+    client.post("/v1/notes", json={"title": "a", "content": "1"}, headers=HEADERS)
+    client.post("/v1/notes", json={"title": "b", "content": "2"}, headers=HEADERS)
+    client.post("/v1/notes", json={"title": "c", "content": "3"}, headers=HEADERS)
 
-    r1 = client.get("/v1/notes?limit=1&offset=0")
+    r1 = client.get("/v1/notes?limit=1&offset=0", headers=HEADERS)
     assert r1.status_code == 200
     d1 = r1.json()
     assert len(d1) == 1
 
-    r2 = client.get("/v1/notes?limit=1&offset=1")
+    r2 = client.get("/v1/notes?limit=1&offset=1", headers=HEADERS)
     assert r2.status_code == 200
     d2 = r2.json()
     assert len(d2) == 1
@@ -132,16 +136,16 @@ def test_list_notes_pagination_limit_offset():
 
 
 def test_list_notes_sort_created_at_asc_desc():
-    client.post("/v1/notes", json={"title": "first", "content": "1"})
-    client.post("/v1/notes", json={"title": "second", "content": "2"})
+    client.post("/v1/notes", json={"title": "first", "content": "1"}, headers=HEADERS)
+    client.post("/v1/notes", json={"title": "second", "content": "2"}, headers=HEADERS)
 
-    r_desc = client.get("/v1/notes?limit=2&sort=created_at_desc")
+    r_desc = client.get("/v1/notes?limit=2&sort=created_at_desc", headers=HEADERS)
     assert r_desc.status_code == 200
     d_desc = r_desc.json()
     assert len(d_desc) == 2
     assert _iso_to_dt(d_desc[0]["created_at"]) >= _iso_to_dt(d_desc[1]["created_at"])
 
-    r_asc = client.get("/v1/notes?limit=2&sort=created_at_asc")
+    r_asc = client.get("/v1/notes?limit=2&sort=created_at_asc", headers=HEADERS)
     assert r_asc.status_code == 200
     d_asc = r_asc.json()
     assert len(d_asc) == 2
