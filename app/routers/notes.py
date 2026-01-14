@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -13,10 +13,15 @@ service = NotesService()
 def create_note(payload: NoteCreate, db: Session = Depends(get_db)):
     return service.create(db, payload)
 
-
+# 规定单次获取的数量、起点的下限
 @router.get("/notes", response_model=list[NoteOut])
-def list_notes(db: Session = Depends(get_db)):
-    return service.list(db)
+def list_notes(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("created_at_desc"),
+    db: Session = Depends(get_db),
+):
+    return service.list(db, limit=limit, offset=offset, sort=sort)
 
 
 @router.get("/notes/{note_id}", response_model=NoteOut)

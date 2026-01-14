@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
 from app.main import app
 from app.db import Base, get_db
@@ -104,3 +105,44 @@ def test_delete_note():
     # 删除后再获取应 404
     resp2 = client.get(f"/v1/notes/{note_id}")
     assert resp2.status_code == 404
+
+
+def _iso_to_dt(s: str) -> datetime:
+    # created_at 是 ISO 字符串，比如 "2026-01-14T12:34:56.123456"
+    return datetime.fromisoformat(s)
+
+
+def test_list_notes_pagination_limit_offset():
+    client.post("/v1/notes", json={"title": "a", "content": "1"})
+    client.post("/v1/notes", json={"title": "b", "content": "2"})
+    client.post("/v1/notes", json={"title": "c", "content": "3"})
+
+    r1 = client.get("/v1/notes?limit=1&offset=0")
+    assert r1.status_code == 200
+    d1 = r1.json()
+    assert len(d1) == 1
+
+    r2 = client.get("/v1/notes?limit=1&offset=1")
+    assert r2.status_code == 200
+    d2 = r2.json()
+    assert len(d2) == 1
+
+    # 两页拿到的 title 应该不同（证明 offset 生效）
+    assert d1[0]["title"] != d2[0]["title"]
+
+
+def test_list_notes_sort_created_at_asc_desc():
+    client.post("/v1/notes", json={"title": "first", "content": "1"})
+    client.post("/v1/notes", json={"title": "second", "content": "2"})
+
+    r_desc = client.get("/v1/notes?limit=2&sort=created_at_desc")
+    assert r_desc.status_code == 200
+    d_desc = r_desc.json()
+    assert len(d_desc) == 2
+    assert _iso_to_dt(d_desc[0]["created_at"]) >= _iso_to_dt(d_desc[1]["created_at"])
+
+    r_asc = client.get("/v1/notes?limit=2&sort=created_at_asc")
+    assert r_asc.status_code == 200
+    d_asc = r_asc.json()
+    assert len(d_asc) == 2
+    assert _iso_to_dt(d_asc[0]["created_at"]) <= _iso_to_dt(d_asc[1]["created_at"])

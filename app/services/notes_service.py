@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import asc, desc
 
 from app.models import Note
 from app.schemas.notes import NoteCreate, NoteOut
@@ -20,8 +21,26 @@ class NotesService:
         db.refresh(note)  # 拿到自增 id 等数据库生成的字段
         return NoteOut(id=note.id, title=note.title, content=note.content, created_at=note.created_at)
 
-    def list(self, db: Session) -> list[NoteOut]:
-        notes = db.query(Note).order_by(Note.id.asc()).all()
+    # 对获取的结果进行分页（20条/页，并进行排序）
+    def list(self, db: Session, limit: int = 20, offset: int = 0, sort: str = "created_at_desc") -> list[NoteOut]:
+        # 1) 排序字段白名单（避免乱传）
+        # 首先按照场景时间排序，再使用id作为第二排序
+        if sort == "created_at_desc":
+            order_clause = [desc(Note.created_at), desc(Note.id)]
+        elif sort == "created_at_asc":
+            order_clause = [asc(Note.created_at), asc(Note.id)]
+        else:
+            raise HTTPException(status_code=400, detail="Invalid sort. Use created_at_desc or created_at_asc")
+
+        # 2) 查询 + 排序 + 分页
+        q = (
+            db.query(Note)
+            .order_by(*order_clause)
+            .offset(offset)
+            .limit(limit)
+        )
+        notes = q.all()
+
         return [
             NoteOut(id=n.id, title=n.title, content=n.content, created_at=n.created_at)
             for n in notes
