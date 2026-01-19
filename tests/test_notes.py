@@ -1,3 +1,9 @@
+import os
+os.environ["API_KEY"] = "test-key"
+os.environ["DATABASE_URL"] = "sqlite:///./test_notes.db"  # 新增：避免生成 notes.db
+
+HEADERS = {"X-API-Key": "test-key"}
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -6,10 +12,6 @@ from datetime import datetime
 from app.main import app
 from app.db import Base, get_db
 from app.models import Note
-
-import os
-os.environ["API_KEY"] = "test-key"
-HEADERS = {"X-API-Key": "test-key"}
 
 # 1) 测试用独立数据库（不会影响 notes.db）
 TEST_DATABASE_URL = "sqlite:///./test_notes.db"
