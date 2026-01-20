@@ -19,3 +19,8 @@ curl "http://127.0.0.1:8000/v1/notes" -H "X-API-Key: dev-key-123"
 3）启动：
 uvicorn app.main:app --reload
 
+# 数据库迁移 生产环境/团队协作以 Alembic 迁移为准，不依赖 create_all。
+alembic revision --autogenerate -m "xxx"
+alembic upgrade head
+
+
