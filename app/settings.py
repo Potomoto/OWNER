@@ -1,5 +1,6 @@
 # app/settings.py
 import os
+
 from dotenv import load_dotenv
 
 # 1) 自动加载项目根目录的 .env

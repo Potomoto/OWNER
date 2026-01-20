@@ -3,17 +3,19 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.schemas.notes import NoteCreate, NoteOut
-from app.services.notes_service import NotesService
 from app.security import verify_api_key
+from app.services.notes_service import NotesService
 
 # 给整个router加入鉴权依赖
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 service = NotesService()
 
+
 # Depends(get_db)是FastAPI的依赖注入，会自动执行get_db()，返回一个可用的session，并在结束时自动关闭
 @router.post("/notes", response_model=NoteOut)
 def create_note(payload: NoteCreate, db: Session = Depends(get_db)):
     return service.create(db, payload)
+
 
 # 规定单次获取的数量、起点的下限
 @router.get("/notes", response_model=list[NoteOut])

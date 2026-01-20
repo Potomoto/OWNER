@@ -1,14 +1,12 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
+# 重要：确保 models 被 import，使得 Note 表等真正注册到 Base.metadata
+# 需要保证使用node前配置文件要运行一次
 from alembic import context
 from app import settings  # 关键：复用你已有的 .env 加载逻辑
-
 from app.db import Base
-# 重要：确保 models 被 import，使得 Note 表等真正注册到 Base.metadata，需要保证使用node前配置文件要运行一次
-import app.models  # 如果你的模型定义在 app/models.py
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -70,9 +68,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

@@ -1,10 +1,12 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import APIKeyHeader
+
 from app import settings
 
 # 定义：我们从请求 Header 的 X-API-Key 里取值
 # APIKeyHeader会将需要X-API-Key的项目规则写入OpenAPI文档
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
 
 # verify_api_key是一个依赖，FastAPI会在每一个请求前先执行它
 def verify_api_key(api_key: str | None = Depends(api_key_header)) -> None:

@@ -1,25 +1,22 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+
+from app import (
+    settings,
+)
+from app.core.errors import (
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
+from app.core.logging import setup_logging
+from app.core.middleware import log_requests
+from app.db import Base, engine
 from app.routers.notes import router as notes_router
 
-from app import settings
-from app.db import Base, engine
-from app import models  # 这行很重要：确保 Note 模型被导入并注册到 Base
 # 需要让ORM见过模型（Note类），才知道应当创建哪张表，确保Note被加载
 
 app = FastAPI(title="Notes API", version="0.1.0")
-
-from fastapi import FastAPI
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import HTTPException
-
-from app.core.logging import setup_logging
-from app.core.middleware import log_requests
-from app.core.errors import (
-    http_exception_handler,
-    validation_exception_handler,
-    unhandled_exception_handler,
-)
 
 setup_logging()
 

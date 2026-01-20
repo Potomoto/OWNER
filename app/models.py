@@ -1,7 +1,10 @@
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime
+
+from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.db import Base
+
 
 # Note代表一张数据库表
 class Note(Base):

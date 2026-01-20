@@ -1,10 +1,12 @@
 # app/core/errors.py
 import logging
-from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
+
+from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("error")
+
 
 # 对error返回格式进行规范
 def error_response(code: str, message: str, status_code: int, details=None) -> JSONResponse:
@@ -20,6 +22,7 @@ def error_response(code: str, message: str, status_code: int, details=None) -> J
     """
     payload = {"error": {"code": code, "message": message, "details": details}}
     return JSONResponse(status_code=status_code, content=payload)
+
 
 # 规定错误代码对应的名称
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -43,6 +46,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=422,
         details=exc.errors(),
     )
+
 
 async def unhandled_exception_handler(request: Request, exc: Exception):
     """

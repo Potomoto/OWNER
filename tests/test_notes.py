@@ -1,17 +1,18 @@
 import os
-os.environ["API_KEY"] = "test-key"
-os.environ["DATABASE_URL"] = "sqlite:///./test_notes.db"  # 新增：避免生成 notes.db
-
-HEADERS = {"X-API-Key": "test-key"}
+from datetime import datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
 
-from app.main import app
 from app.db import Base, get_db
+from app.main import app
 from app.models import Note
+
+os.environ["API_KEY"] = "test-key"
+os.environ["DATABASE_URL"] = "sqlite:///./test_notes.db"  # 新增：避免生成 notes.db
+
+HEADERS = {"X-API-Key": "test-key"}
 
 # 1) 测试用独立数据库（不会影响 notes.db）
 TEST_DATABASE_URL = "sqlite:///./test_notes.db"
@@ -38,6 +39,7 @@ def override_get_db():
         yield db
     finally:
         db.close()
+
 
 # 切换生产数据库连接为测试数据库连接
 app.dependency_overrides[get_db] = override_get_db
@@ -88,10 +90,14 @@ def test_get_note_not_found():
 
 
 def test_update_note():
-    created = client.post("/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS).json()
+    created = client.post(
+        "/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS
+    ).json()
     note_id = created["id"]
 
-    resp = client.put(f"/v1/notes/{note_id}", json={"title": "t1b", "content": "c1b"}, headers=HEADERS)
+    resp = client.put(
+        f"/v1/notes/{note_id}", json={"title": "t1b", "content": "c1b"}, headers=HEADERS
+    )
     assert resp.status_code == 200
 
     data = resp.json()
@@ -101,7 +107,9 @@ def test_update_note():
 
 
 def test_delete_note():
-    created = client.post("/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS).json()
+    created = client.post(
+        "/v1/notes", json={"title": "t1", "content": "c1"}, headers=HEADERS
+    ).json()
     note_id = created["id"]
 
     resp = client.delete(f"/v1/notes/{note_id}", headers=HEADERS)
