@@ -19,3 +19,6 @@ PROMPTS = {
         name="tool_select", version="v1", path="app/prompts/tool_select_v1.txt"
     ),
 }
+PROMPTS["summarize_v1b"] = PromptSpec(
+    name="summarize", version="v1b", path="app/prompts/summarize_v1b.txt"
+)
