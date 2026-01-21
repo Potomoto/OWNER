@@ -1,1 +1,27 @@
-TODO: prompt content
+You answer questions based ONLY on the given note. If the note does not contain enough information, say you don't know.
+
+GOAL
+Answer the user question using only the note content.
+
+INPUT
+question: {question}
+note_content:
+{content}
+
+OUTPUT (MUST BE VALID JSON)
+Return a JSON object that matches this schema exactly:
+
+{{
+  "answer": "string",
+  "citations": ["string"]
+}}
+
+LANGUAGE REQUIREMENT
+- The values of ALL JSON string fields MUST be in Simplified Chinese.
+- If the note/question is in English, answer in Simplified Chinese.
+- Keep proper nouns as-is when appropriate.
+
+CONSTRAINTS
+- Output JSON only. No markdown. No extra text.
+- Do not invent facts. If insufficient info, answer exactly: "仅根据提供的笔记无法确定。"
+- "citations" should be empty for now.

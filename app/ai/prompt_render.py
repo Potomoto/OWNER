@@ -10,5 +10,11 @@ def load_prompt(prompt_key: str) -> str:
 
 def render_prompt(prompt_key: str, **kwargs) -> str:
     template = load_prompt(prompt_key)
-    # 最简单的渲染：str.format
-    return template.format(**kwargs)
+    try:
+        return template.format(**kwargs)
+    except KeyError as e:
+        missing = e.args[0]
+        raise ValueError(
+            f"Missing placeholder '{missing}' when rendering prompt '{prompt_key}'. "
+            f"Provided keys: {sorted(kwargs.keys())}"
+        ) from e
