@@ -12,15 +12,29 @@ from app.core.errors import (
 from app.core.logging import setup_logging
 from app.core.middleware import log_requests
 from app.db import Base, engine
+from app.routers.ai import router as ai_router
 from app.routers.notes import router as notes_router
 
 # 需要让ORM见过模型（Note类），才知道应当创建哪张表，确保Note被加载
+
 
 app = FastAPI(title="Notes API", version="0.1.0")
 
 setup_logging()
 
 app = FastAPI()
+
+
+@app.middleware("http")
+async def ensure_json_utf8(request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if ct.startswith("application/json") and "charset=" not in ct.lower():
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
+
+
+app.include_router(ai_router)
 
 # 中间件：记录每个请求耗时
 app.middleware("http")(log_requests)
