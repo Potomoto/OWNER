@@ -1,0 +1,18 @@
+{
+  "A": {
+    "prompt_key": "summarize_v1",
+    "total": 20,
+    "parse_success_rate": 1.0,
+    "avg_summary_len": 43.35,
+    "empty_bullets_rate": 0.05,
+    "chinese_rate": 1.0
+  },
+  "B": {
+    "prompt_key": "summarize_v1b",
+    "total": 20,
+    "parse_success_rate": 1.0,
+    "avg_summary_len": 44.9,
+    "empty_bullets_rate": 0.05,
+    "chinese_rate": 1.0
+  }
+}
