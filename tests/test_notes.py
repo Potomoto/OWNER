@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 
 from fastapi.testclient import TestClient
@@ -9,12 +8,8 @@ from app.db import Base, get_db
 from app.main import app
 from app.models import Note
 
-os.environ["API_KEY"] = "test-key"
-os.environ["DATABASE_URL"] = "sqlite:///./test_notes.db"  # 新增：避免生成 notes.db
-
 HEADERS = {"X-API-Key": "test-key"}
 
-# 1) 测试用独立数据库（不会影响 notes.db）
 TEST_DATABASE_URL = "sqlite:///./test_notes.db"
 
 test_engine = create_engine(
@@ -28,11 +23,9 @@ TestingSessionLocal = sessionmaker(
     autocommit=False,
 )
 
-# 2) 在测试数据库里建表
 Base.metadata.create_all(bind=test_engine)
 
 
-# 3) 覆盖 get_db：让接口在测试时使用 test_notes.db
 def override_get_db():
     db = TestingSessionLocal()
     try:
@@ -41,9 +34,7 @@ def override_get_db():
         db.close()
 
 
-# 切换生产数据库连接为测试数据库连接
 app.dependency_overrides[get_db] = override_get_db
-
 client = TestClient(app)
 
 
@@ -83,10 +74,21 @@ def test_list_notes():
     assert len(data) == 2
 
 
+def assert_error(resp, status_code: int, code: str | None = None, message: str | None = None):
+    assert resp.status_code == status_code
+    data = resp.json()
+    assert "error" in data
+    assert "message" in data["error"]
+
+    if code is not None:
+        assert data["error"]["code"] == code
+    if message is not None:
+        assert data["error"]["message"] == message
+
+
 def test_get_note_not_found():
     resp = client.get("/v1/notes/999", headers=HEADERS)
-    assert resp.status_code == 404
-    assert resp.json()["detail"] == "Note not found"
+    assert_error(resp, 404, code="not_found", message="Note not found")
 
 
 def test_update_note():
