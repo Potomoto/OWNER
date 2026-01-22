@@ -22,8 +22,6 @@ app = FastAPI(title="Notes API", version="0.1.0")
 
 setup_logging()
 
-app = FastAPI()
-
 
 @app.middleware("http")
 async def ensure_json_utf8(request, call_next):
