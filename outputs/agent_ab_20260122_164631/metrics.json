@@ -1,0 +1,40 @@
+{
+  "A": {
+    "total": 20,
+    "success_rate": 1.0,
+    "max_steps_rate": 0.0,
+    "exception_rate": 0.0,
+    "avg_steps": 1.55,
+    "avg_cost_ms": 6537.47180000064,
+    "tool_error_rate": 0.0,
+    "chinese_rate": 1.0,
+    "expected_tool_match_rate": 0.7894736842105263,
+    "counts": {
+      "success": 20,
+      "max_steps": 0,
+      "exceptions": 0,
+      "tool_calls": 31,
+      "tool_errors": 0,
+      "expected_cases": 19
+    }
+  },
+  "B": {
+    "total": 20,
+    "success_rate": 1.0,
+    "max_steps_rate": 0.0,
+    "exception_rate": 0.0,
+    "avg_steps": 1.6,
+    "avg_cost_ms": 7754.30463499797,
+    "tool_error_rate": 0.0,
+    "chinese_rate": 0.95,
+    "expected_tool_match_rate": 0.8421052631578947,
+    "counts": {
+      "success": 20,
+      "max_steps": 0,
+      "exceptions": 0,
+      "tool_calls": 32,
+      "tool_errors": 0,
+      "expected_cases": 19
+    }
+  }
+}

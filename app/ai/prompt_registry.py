@@ -27,3 +27,8 @@ PROMPTS["react_step_v1"] = PromptSpec(
     version="v1",
     path="app/prompts/react_step_v1.txt",
 )
+PROMPTS["react_step_v1b"] = PromptSpec(
+    name="react_step",
+    version="v1b",
+    path="app/prompts/react_step_v1b.txt",
+)
