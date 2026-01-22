@@ -22,7 +22,7 @@ class DeepSeekClient:
         self,
         api_key: str,
         base_url: str = "https://api.siliconflow.cn/v1",
-        model: str = "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+        model: str = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
         timeout_s: float = 30.0,
     ):
         self.api_key = api_key
