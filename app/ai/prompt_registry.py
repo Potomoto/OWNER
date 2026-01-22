@@ -22,3 +22,8 @@ PROMPTS = {
 PROMPTS["summarize_v1b"] = PromptSpec(
     name="summarize", version="v1b", path="app/prompts/summarize_v1b.txt"
 )
+PROMPTS["react_step_v1"] = PromptSpec(
+    name="react_step",
+    version="v1",
+    path="app/prompts/react_step_v1.txt",
+)
