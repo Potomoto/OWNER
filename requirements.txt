@@ -32,4 +32,6 @@ alembic
 ruff
 pre-commit
 httpx
-	
+langchain-core
+langgraph
+langgraph-checkpoint-sqlite
