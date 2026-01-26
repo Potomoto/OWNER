@@ -184,6 +184,40 @@ ruff check --fix app/
 ruff format app/
 ```
 
+# 记忆功能测试
+$headers = @{ "X-API-Key" = "dev-key-123" }
+$bodyObj = @{
+  request   = "请创建一条标题为Session23的笔记，内容为：我已经接入了SQLite记忆。"
+  max_steps = 5
+  debug     = $true
+}
+$body = $bodyObj | ConvertTo-Json -Depth 20 -Compress   # ✅ 一定要加 -Depth
+
+$raw1 = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/ai/agent/run" `
+  -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body
+# ✅ 强制拿到 thread_id 的纯字符串
+$threadId = [string]$raw1.thread_id
+$threadId
+
+
+$state = Invoke-RestMethod -Method Get -Uri ("http://127.0.0.1:8000/ai/agent/state/{0}" -f $threadId) `
+  -Headers $headers
+# 打印关键字段
+$state.steps_count
+$state.last_action | ConvertTo-Json -Depth 20
+
+
+$body2Obj = @{
+  request   = "继续：请搜索Session23相关笔记，并告诉我找到几个。"
+  thread_id = $threadId         # ✅ 用纯字符串变量，不要直接 $r.thread_id
+  max_steps = 5
+  debug     = $true
+}
+$body2 = $body2Obj | ConvertTo-Json -Depth 20 -Compress
+$raw2 = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/ai/agent/run" `
+  -Headers $headers -ContentType "application/json; charset=utf-8" -Body $body2
+$raw2 | ConvertTo-Json -Depth 20
+
 ## 项目结构
 
 ```

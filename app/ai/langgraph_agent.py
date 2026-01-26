@@ -1,11 +1,10 @@
 # app/ai/langgraph_agent.py
 from __future__ import annotations
 
-import operator
 import re
 import time
 import uuid
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -19,7 +18,7 @@ from app.ai.tools.registry import run_tool
 
 """
 LangGraph 的 graph 运行时一直在传一个 state, 其中最关键的 state 包括:
-- steps: 记录 ReAct 轨迹（要持久化记忆，必须稳定“累加”）
+- steps: 记录 ReAct 轨迹（本版本：直接裁剪 = 覆盖式写回）
 - action: 当前模型给的下一步动作（tool/final 的 JSON dict）
 - iterations: 已执行多少次 tool（硬刹车用）
 """
@@ -30,11 +29,10 @@ LangGraph 的 graph 运行时一直在传一个 state, 其中最关键的 state 
 
 
 class AgentState(TypedDict, total=False):
-    # 输入（保持你的字段名不改）
     request: str
 
-    # ✅ ReAct 轨迹：用 reducer 明确是“追加”
-    steps: Annotated[list[dict[str, Any]], operator.add]
+    # ✅ 直接裁剪版：steps 是普通字段（不再使用 reducer/operator.add）
+    steps: list[dict[str, Any]]
 
     # 当前动作
     action: dict[str, Any]
@@ -63,6 +61,14 @@ class LangGraphAgentResult(BaseModel):
 # ----------------------------
 
 
+def _trim_steps(steps: list[dict], keep_last: int) -> list[dict]:
+    if keep_last <= 0:
+        return []
+    if len(steps) <= keep_last:
+        return steps
+    return steps[-keep_last:]
+
+
 def build_langgraph_agent(
     *,
     db: Session,
@@ -70,16 +76,19 @@ def build_langgraph_agent(
     prompt_key: str = "react_step_v1",
     max_steps: int = 5,
     checkpointer=None,
+    memory_max_steps: int = 20,
 ):
     """
     构建并编译一张最小 LangGraph：
       START -> call_model -(tool)-> run_tool -> call_model ...-> (final)-> END
+
+    ✅ 本版本：steps 直接裁剪（覆盖式写回 state），因此不再使用 reducer(add)。
     """
 
     async def call_model_node(state: AgentState) -> AgentState:
         iterations = int(state.get("iterations", 0))
         steps = state.get("steps", []) or []
-        req = state.get("request", "")
+        req = state.get("request", "") or ""
 
         # 工程保护：硬刹车，避免无限循环
         if iterations >= max_steps:
@@ -95,9 +104,16 @@ def build_langgraph_agent(
                 "stopped_reason": "max_steps",
             }
 
+        # ✅ 你也可以在这里“只给模型看裁剪后的 steps”
+        # 但注意：这不会改变 state 本身（state 本身的裁剪在 run_tool_node 做）
+        if memory_max_steps is not None:
+            steps_for_model = _trim_steps(steps, memory_max_steps)
+        else:
+            steps_for_model = steps
+
         action = await decide_next_action(
             request=req,
-            steps=steps,
+            steps=steps_for_model,
             prompt_key=prompt_key,
             call_model=call_model,
         )
@@ -105,7 +121,6 @@ def build_langgraph_agent(
         action_dict = action.model_dump()
 
         # ✅ 工程硬约束：创建笔记类请求，第一步必须 create_note
-        # 解释：prompt 规则是软约束，模型可能犯规；这里做硬纠偏，保证符合你 prompt 的 Hard rule #3
         if iterations == 0:
             want_create = (
                 ("创建" in req) or ("新增" in req) or ("记录" in req) or ("create" in req.lower())
@@ -129,7 +144,7 @@ def build_langgraph_agent(
         if action_dict.get("type") == "final":
             return {
                 "action": action_dict,
-                "answer": action_dict.get("answer", ""),
+                "answer": action_dict.get("answer", "") or "",
                 "citations": action_dict.get("citations", []) or [],
                 "stopped_reason": "final",
             }
@@ -143,22 +158,36 @@ def build_langgraph_agent(
         return "final"
 
     def run_tool_node(state: AgentState) -> AgentState:
+        """
+        ✅ 直接裁剪的核心在这里：
+        - 读出历史 steps
+        - append 新 step
+        - 立刻 trim
+        - 返回完整 steps（覆盖写回 state）
+        """
         action = state.get("action") or {}
         iterations = int(state.get("iterations", 0))
+        steps = state.get("steps", []) or []
 
         tool_name = action.get("tool_name")
         args = action.get("args") or {}
 
         obs = run_tool(db, tool_name, args)
 
-        # ✅ 关键：只返回“新增的一条 step”，由 reducer(operator.add) 自动追加到历史 steps
-        new_step = {
-            "step": iterations + 1,
-            "action": action,
-            "observation": obs,
-        }
+        new_steps = list(steps)
+        new_steps.append(
+            {
+                "step": iterations + 1,
+                "action": action,
+                "observation": obs,
+            }
+        )
 
-        return {"steps": [new_step], "iterations": iterations + 1}
+        # ✅ 直接裁剪：覆盖式写回 state（SQLite 里也只会保存裁剪后的 steps）
+        if memory_max_steps is not None:
+            new_steps = _trim_steps(new_steps, memory_max_steps)
+
+        return {"steps": new_steps, "iterations": iterations + 1}
 
     graph = StateGraph(AgentState)
     graph.add_node("call_model", call_model_node)
@@ -190,7 +219,6 @@ async def run_langgraph_agent(
     thread_id: str | None = None,
     checkpoint_db_path: str = "agent_checkpoints.sqlite3",
 ) -> tuple[str, LangGraphAgentResult]:
-    # 第一次调用，生成一个新的 thread_id
     if not thread_id:
         thread_id = str(uuid.uuid4())
 
@@ -208,10 +236,9 @@ async def run_langgraph_agent(
 
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
 
-        # ✅ 不要传 steps=[]/iterations=0，避免覆盖历史；只传本轮新增输入
         final_state = await app.ainvoke({"request": request}, config)
 
-        stopped_reason = final_state.get("stopped_reason", "unknown")
+        stopped_reason = final_state.get("stopped_reason", "unknown") or "unknown"
 
         result = LangGraphAgentResult(
             answer=final_state.get("answer", "") or "",
