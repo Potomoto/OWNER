@@ -1,37 +1,42 @@
+# app/ai/langgraph_agent.py
 from __future__ import annotations
 
+import operator
+import re
 import time
-from typing import Any, TypedDict
+import uuid
+from typing import Annotated, Any, TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.ai.agent_model import CallModel
 from app.ai.agent_stepper import decide_next_action
+from app.ai.checkpointers import make_async_sqlite_saver
 from app.ai.tools.registry import run_tool
 
 """
-LangGraph的graph运行时一直在传一个state,其中最关键的state包括:
-- steps: 记录了ReAct的轨迹
-- action: 记录了当前模型给的下一步动作（tool/final 的 JSON dict）
-- iterations: 记录了已经执行过多少次 tool
-
-节点：
-- call_model 节点：读 state（request + steps）→ 调 decide_next_action → 写 action
-- run_tool 节点：读 action → 执行工具 → 把 observation append 到 steps → iterations+1
-- 将之前的代码控制流变成了图控制流
+LangGraph 的 graph 运行时一直在传一个 state, 其中最关键的 state 包括:
+- steps: 记录 ReAct 轨迹（要持久化记忆，必须稳定“累加”）
+- action: 当前模型给的下一步动作（tool/final 的 JSON dict）
+- iterations: 已执行多少次 tool（硬刹车用）
 """
+
+# ----------------------------
+# State + Result Schemas
+# ----------------------------
 
 
 class AgentState(TypedDict, total=False):
-    # 输入
+    # 输入（保持你的字段名不改）
     request: str
 
-    # ReAct 轨迹
-    steps: list[dict[str, Any]]
+    # ✅ ReAct 轨迹：用 reducer 明确是“追加”
+    steps: Annotated[list[dict[str, Any]], operator.add]
 
-    # 当前“模型给的下一步动作”（tool/final 的 JSON dict）
+    # 当前动作
     action: dict[str, Any]
 
     # 最终输出
@@ -41,13 +46,21 @@ class AgentState(TypedDict, total=False):
     # 计数器：已经执行过多少次 tool
     iterations: int
 
+    # ✅ 结构化停止原因
+    stopped_reason: str  # final / max_steps / error
+
 
 class LangGraphAgentResult(BaseModel):
     answer: str
     citations: list[str] = Field(default_factory=list)
     steps: list[dict[str, Any]] = Field(default_factory=list)
     cost_ms: float
-    stopped_reason: str  # final / max_steps
+    stopped_reason: str  # final / max_steps / error
+
+
+# ----------------------------
+# Agent builder
+# ----------------------------
 
 
 def build_langgraph_agent(
@@ -56,6 +69,7 @@ def build_langgraph_agent(
     call_model: CallModel,
     prompt_key: str = "react_step_v1",
     max_steps: int = 5,
+    checkpointer=None,
 ):
     """
     构建并编译一张最小 LangGraph：
@@ -64,7 +78,8 @@ def build_langgraph_agent(
 
     async def call_model_node(state: AgentState) -> AgentState:
         iterations = int(state.get("iterations", 0))
-        steps = state.get("steps", [])
+        steps = state.get("steps", []) or []
+        req = state.get("request", "")
 
         # 工程保护：硬刹车，避免无限循环
         if iterations >= max_steps:
@@ -77,35 +92,51 @@ def build_langgraph_agent(
                 "action": final_action,
                 "answer": final_action["answer"],
                 "citations": [],
+                "stopped_reason": "max_steps",
             }
 
         action = await decide_next_action(
-            request=state["request"],
+            request=req,
             steps=steps,
             prompt_key=prompt_key,
             call_model=call_model,
         )
 
-        # model_dump 转成 dict
         action_dict = action.model_dump()
 
-        # 如果是 final，把 answer/citations 写进 state（让 END 有可读输出）
+        # ✅ 工程硬约束：创建笔记类请求，第一步必须 create_note
+        # 解释：prompt 规则是软约束，模型可能犯规；这里做硬纠偏，保证符合你 prompt 的 Hard rule #3
+        if iterations == 0:
+            want_create = (
+                ("创建" in req) or ("新增" in req) or ("记录" in req) or ("create" in req.lower())
+            )
+            if want_create:
+                is_create_first = (
+                    action_dict.get("type") == "tool"
+                    and action_dict.get("tool_name") == "create_note"
+                )
+                if not is_create_first:
+                    m_title = re.search(r"标题为([^\s，。]+)", req)
+                    m_content = re.search(r"内容为[:：]\s*(.+)$", req)
+                    title = m_title.group(1) if m_title else "未命名"
+                    content = m_content.group(1) if m_content else req
+                    action_dict = {
+                        "type": "tool",
+                        "tool_name": "create_note",
+                        "args": {"title": title, "content": content},
+                    }
+
         if action_dict.get("type") == "final":
             return {
                 "action": action_dict,
                 "answer": action_dict.get("answer", ""),
                 "citations": action_dict.get("citations", []) or [],
+                "stopped_reason": "final",
             }
 
-        # tool：只写 action，交给 run_tool 节点执行
         return {"action": action_dict}
 
     def route_after_call_model(state: AgentState) -> str:
-        """
-        条件边路由：
-        - tool -> run_tool
-        - final -> END
-        """
         action = state.get("action") or {}
         if action.get("type") == "tool":
             return "tool"
@@ -114,23 +145,20 @@ def build_langgraph_agent(
     def run_tool_node(state: AgentState) -> AgentState:
         action = state.get("action") or {}
         iterations = int(state.get("iterations", 0))
-        steps = state.get("steps", [])
 
         tool_name = action.get("tool_name")
         args = action.get("args") or {}
 
         obs = run_tool(db, tool_name, args)
 
-        new_steps = list(steps)
-        new_steps.append(
-            {
-                "step": iterations + 1,
-                "action": action,
-                "observation": obs,
-            }
-        )
+        # ✅ 关键：只返回“新增的一条 step”，由 reducer(operator.add) 自动追加到历史 steps
+        new_step = {
+            "step": iterations + 1,
+            "action": action,
+            "observation": obs,
+        }
 
-        return {"steps": new_steps, "iterations": iterations + 1}
+        return {"steps": [new_step], "iterations": iterations + 1}
 
     graph = StateGraph(AgentState)
     graph.add_node("call_model", call_model_node)
@@ -140,14 +168,16 @@ def build_langgraph_agent(
     graph.add_conditional_edges(
         "call_model",
         route_after_call_model,
-        {
-            "tool": "run_tool",
-            "final": END,
-        },
+        {"tool": "run_tool", "final": END},
     )
     graph.add_edge("run_tool", "call_model")
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
+
+
+# ----------------------------
+# Public APIs
+# ----------------------------
 
 
 async def run_langgraph_agent(
@@ -157,40 +187,76 @@ async def run_langgraph_agent(
     call_model: CallModel,
     prompt_key: str = "react_step_v1",
     max_steps: int = 5,
-) -> LangGraphAgentResult:
+    thread_id: str | None = None,
+    checkpoint_db_path: str = "agent_checkpoints.sqlite3",
+) -> tuple[str, LangGraphAgentResult]:
+    # 第一次调用，生成一个新的 thread_id
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+
     t0 = time.perf_counter()
 
-    app = build_langgraph_agent(
-        db=db,
-        call_model=call_model,
-        prompt_key=prompt_key,
-        max_steps=max_steps,
-    )
+    handle = await make_async_sqlite_saver(checkpoint_db_path)
+    try:
+        app = build_langgraph_agent(
+            db=db,
+            call_model=call_model,
+            prompt_key=prompt_key,
+            max_steps=max_steps,
+            checkpointer=handle.saver,
+        )
 
-    final_state: AgentState = await app.ainvoke(
-        {
-            "request": request,
-            "steps": [],
-            "iterations": 0,
-            "citations": [],
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+
+        # ✅ 不要传 steps=[]/iterations=0，避免覆盖历史；只传本轮新增输入
+        final_state = await app.ainvoke({"request": request}, config)
+
+        stopped_reason = final_state.get("stopped_reason", "unknown")
+
+        result = LangGraphAgentResult(
+            answer=final_state.get("answer", "") or "",
+            citations=final_state.get("citations", []) or [],
+            steps=final_state.get("steps", []) or [],
+            cost_ms=(time.perf_counter() - t0) * 1000,
+            stopped_reason=stopped_reason,
+        )
+        return thread_id, result
+    finally:
+        await handle.conn.close()
+
+
+async def get_langgraph_state(
+    *,
+    db: Session,
+    call_model: CallModel,
+    thread_id: str,
+    prompt_key: str = "react_step_v1",
+    max_steps: int = 5,
+    checkpoint_db_path: str = "agent_checkpoints.sqlite3",
+) -> dict:
+    handle = await make_async_sqlite_saver(checkpoint_db_path)
+    try:
+        app = build_langgraph_agent(
+            db=db,
+            call_model=call_model,
+            prompt_key=prompt_key,
+            max_steps=max_steps,
+            checkpointer=handle.saver,
+        )
+
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        snapshot = await app.aget_state(config)
+
+        values = snapshot.values or {}
+        steps = values.get("steps", []) or []
+        last = steps[-1] if steps else None
+
+        return {
+            "thread_id": thread_id,
+            "steps_count": len(steps),
+            "last_action": (last or {}).get("action"),
+            "last_observation_ok": ((last or {}).get("observation") or {}).get("ok"),
+            "next": list(snapshot.next) if getattr(snapshot, "next", None) is not None else [],
         }
-    )
-
-    answer = final_state.get("answer", "") or ""
-    citations = final_state.get("citations", []) or []
-    steps = final_state.get("steps", []) or []
-    stopped_reason = (
-        "final" if (final_state.get("action") or {}).get("type") == "final" else "unknown"
-    )
-
-    # 如果是 max_steps，我们在 call_model_node 里会强制写入那句固定答案
-    if answer.startswith("达到最大步骤限制"):
-        stopped_reason = "max_steps"
-
-    return LangGraphAgentResult(
-        answer=answer,
-        citations=citations,
-        steps=steps,
-        cost_ms=(time.perf_counter() - t0) * 1000,
-        stopped_reason=stopped_reason,
-    )
+    finally:
+        await handle.conn.close()

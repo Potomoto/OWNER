@@ -35,3 +35,4 @@ httpx
 langchain-core
 langgraph
 langgraph-checkpoint-sqlite
+aiosqlite

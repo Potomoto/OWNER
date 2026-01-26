@@ -1,12 +1,14 @@
 # app/routers/ai.py
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.ai.agent_model import CallModel, get_agent_call_model
 from app.ai.ai_service import rewrite, summarize
+from app.ai.langgraph_agent import get_langgraph_state, run_langgraph_agent
 from app.ai.output_schemas import RewriteOut, SummaryOut
-from app.ai.react_agent import AgentRunResult, run_react_agent
 from app.db import get_db
 from app.security import verify_api_key
 
@@ -40,27 +42,63 @@ async def rewrite_api(body: RewriteIn):
 
 class AgentRunIn(BaseModel):
     request: str = Field(..., min_length=1)
+    thread_id: str | None = None
     max_steps: int = Field(5, ge=1, le=10)
     prompt_key: str = "react_step_v1"
     debug: bool = True
 
 
-@router.post("/agent/run", response_model=AgentRunResult)
-async def agent_run_api(
+class AgentRunOut(BaseModel):
+    thread_id: str
+    answer: str
+    citations: list[str] = []
+    steps: list[dict] = []
+    stopped_reason: str
+
+
+class AgentStateOut(BaseModel):
+    thread_id: str
+    steps_count: int
+    last_action: dict[str, Any] | None = None
+    last_observation_ok: bool | None = None
+    next: list[str] = []
+
+
+@router.post("/agent/run")
+async def agent_run(
     body: AgentRunIn,
     db: Session = Depends(get_db),
-    call_model: CallModel = Depends(get_agent_call_model),  # ✅ 真实模型调用注入
+    call_model: CallModel = Depends(get_agent_call_model),
 ):
-    result = await run_react_agent(
+    thread_id, result = await run_langgraph_agent(
         db=db,
         request=body.request,
         call_model=call_model,
         max_steps=body.max_steps,
         prompt_key=body.prompt_key,
+        thread_id=body.thread_id,
+        checkpoint_db_path="agent_checkpoints.sqlite3",
     )
 
-    # debug=false 时不返回 steps（生产里通常会关掉）
-    if not body.debug:
-        result.steps = []
+    out = {
+        "thread_id": thread_id,
+        "answer": result.answer,
+        "citations": result.citations,
+        "steps": result.steps if body.debug else [],
+        "stopped_reason": result.stopped_reason,
+    }
+    return out
 
-    return result
+
+@router.get("/agent/state/{thread_id}", response_model=AgentStateOut)
+async def agent_state(
+    thread_id: str,
+    db: Session = Depends(get_db),
+    call_model: CallModel = Depends(get_agent_call_model),
+):
+    return await get_langgraph_state(
+        db=db,
+        call_model=call_model,
+        thread_id=thread_id,
+        checkpoint_db_path="agent_checkpoints.sqlite3",
+    )

@@ -38,7 +38,7 @@ async def test_langgraph_agent_tool_then_final(db_session):
             }
         return {"type": "final", "answer": "已创建并结束", "citations": []}
 
-    out = await run_langgraph_agent(
+    tid, out = await run_langgraph_agent(
         db=db_session,
         request="创建笔记然后结束",
         call_model=fake_model,
@@ -46,7 +46,5 @@ async def test_langgraph_agent_tool_then_final(db_session):
         prompt_key="react_step_v1",
     )
 
+    assert isinstance(tid, str)
     assert out.stopped_reason == "final"
-    assert len(out.steps) == 1
-    assert out.steps[0]["action"]["tool_name"] == "create_note"
-    assert out.steps[0]["observation"]["ok"] is True

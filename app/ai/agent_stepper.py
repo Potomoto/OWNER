@@ -81,7 +81,6 @@ async def decide_next_action(
 
     # 第一次尝试
     data = await call_model(prompt)
-
     try:
         return _validate_action(data)
     except (ValidationError, ValueError) as e:
