@@ -1,0 +1,29 @@
+services:
+  api:
+    build: .
+    container_name: notes_api
+    ports:
+      - "8000:8000"
+    environment:
+      # 你现有配置
+      ENV: "prod"
+      API_KEY: "${API_KEY}"
+      DATABASE_URL: "sqlite:////data/notes.db"
+
+      # 真实模型 key（按你现在项目已有的 env）
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+      DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL}"
+      DEEPSEEK_MODEL: "${DEEPSEEK_MODEL}"
+
+      # 未来第7-8周 RAG 会用（先预留）
+      CHROMA_PATH: "/data/.chroma"
+      RAG_ENABLED: "true"
+      RAG_CHUNK_SIZE: "800"
+      RAG_CHUNK_OVERLAP: "120"
+      RAG_TOP_K: "5"
+    volumes:
+      - notes_data:/data
+    restart: unless-stopped
+
+volumes:
+  notes_data:
